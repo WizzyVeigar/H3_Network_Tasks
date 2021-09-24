@@ -1,92 +1,37 @@
-from netmiko import ConnectHandler
+from ConnectionGetter import CreateConnection
 from netmiko import NetMikoAuthenticationException
-from netmiko import NetMikoTimeoutException 
+from netmiko import NetMikoTimeoutException
 from InterfaceObj import InterfaceObj
 
-
-connection = ConnectHandler(
-    device_type="cisco_ios",
-    host="10.10.1.2",
-    username="Cisco",
-    password="Class",
-    secret="Class")
-
-def ChangeHostName(connection, hostname):
-    try:
-        commands = ["hostname "]
-        connection.enable()
-        connection.send_config_set(commands[0]+hostname)
-        return "Was successfully changed" 
-    except NetMikoAuthenticationException:
-        return "Something went wrong with the command"
-    except NetMikoTimeoutException:
-        return "Connection Timed out"
-    finally:
-        connection.disconnect()
         
-        
-def ChangeBanner(connection, bannerText):
-    try:
-        commands = ["banner #"]
-        connection.enable()
-        connection.send_config_set(commands[0] + bannerText + "#")
-        return "Was successfully changed" 
-    except NetMikoAuthenticationException:
-        return "Something went wrong with the command"
-    except NetMikoTimeoutException:
-        return "Connection Timed out"
-    finally:
-        connection.disconnect()
-
-def ChangeSecret(connection, password):
-    try:
-        commands = ["enable secret "]
-        connection.enable()
-        connection.send_config_set(commands[0] + password)
-        return "Was successfully changed" 
-    except NetMikoAuthenticationException:
-        return "Something went wrong with the command"
-    except NetMikoTimeoutException:
-        return "Connection Timed out"
-    finally:
-        connection.disconnect()
-        
-
-
-def ShowBasicConfigurationMenu(connection):
-    print("What would you like to do?")
-    print("1. Change hostname")
-    print("2. Change banner")
-    print("3. Change secret password")
-    print("4. See all interfaces")
+def GetPortMode(interface):
+    connection = CreateConnection()
+    comm = "show interface " + interface.name + " switchport"
     
-    choice = int(input())
-    
-    if choice == 1:
-        newName = input("What is the new hostname?\n")
-        print(ChangeHostName(connection, newName))        
-    elif choice == 2:
-        newBanner = input("What is the new banner?\n")
-        print(ChangeBanner(connection, newBanner))
-    elif choice == 3:
-        newSecret = input("What is the new password?\n")
-        print(ChangeSecret(connection, newSecret))
-    elif choice == 4:
-        ShowInterfaceConfigurationMenu(connection)
-    else:
-        print("no")
+    try:
+        output = connection.send_command(comm)
+        if "Administrative Mode: trunk" in output:
+            return "trunk"
+        elif "Administrative Mode: static access" in output:
+            return "access"
+        else:
+            return "access"
+    except:
+        print("Something went wrong with setting the port mode")
+    finally:
+        connection.disconnect()
         
-        
-def GetSwitchInterfaces(connection):
+def GetSwitchVlans():
+    connection = CreateConnection()
     comm = "sh ip int brief"
     interfaces = []
     try:
-        connection.enable()
         output = connection.send_command(comm, use_textfsm=True)
-        for interface in output:
-            inter = InterfaceObj(interface["intf"],interface["ipaddr"],interface["status"],interface["proto"])
-            interfaces.append(inter)
-            
+        for vlan in output:
+            inter = InterfaceObj(vlan["intf"], vlan["ipaddr"], vlan["status"], vlan["proto"])
+            if "Vlan" in inter.name:
+                interfaces.append(inter)    
+                
     except NetMikoTimeoutException:
         print("Connection Timed out")
     except NetMikoAuthenticationException:
@@ -94,13 +39,38 @@ def GetSwitchInterfaces(connection):
     finally:
         connection.disconnect()
         return interfaces
-
-
-def ShowInterfaceConfigurationMenu(connection):
-    interfaces = GetSwitchInterfaces(connection)
-    print("#        Name        status      Proto")
-    for interface in interfaces:
-        print(str(interfaces.index(interface)) + ".      "+ interface.name + "       "+ interface.status + "      ", interface.proto)
-    
-    
-ShowBasicConfigurationMenu(connection)
+        
+def SetPortMode(interface, modeToChangeTo):
+    connection = CreateConnection()
+    comms = ["int " + interface.name]
+    try:
+        if "trunk" or "1" in modeToChangeTo:
+            comms.append("switchport trunk encapsulation dot1q")
+            comms.append("switchport mode trunk")
+        else:
+            comms.append("switchport mode access")        
+        
+        connection.send_config_set(comms)
+        print("port has been set")
+    except:
+        print("Setting the port mode failed!")
+    finally:
+        connection.disconnect()
+        
+def SetVlanOnInterface(interface, vlanId):
+    comms = ["int " + interface.name]
+    try:
+        mode = GetPortMode(interface)
+        if "access" in mode:
+            comms.append("switchport access vlan " + vlanId)
+        elif "trunk" in mode:
+            comms.append("switchport trunk allowed vlan " + vlanId)  
+            
+        for command in comms:
+            print(command)
+        connection = CreateConnection()
+        connection.send_config_set(comms)
+    except:
+        print("Couldn't complete the command, something went wrong")
+    finally:
+        connection.disconnect()
